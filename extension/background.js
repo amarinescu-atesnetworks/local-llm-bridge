@@ -1,18 +1,71 @@
-const LLM_BASE = "http://localhost:11434";
+const DEFAULT_BASE = "http://localhost:11434";
+const BASE_KEY = "ollamaBaseUrl";
 const LOG = (...a) => console.log("[local-llm-bridge]", ...a);
 const LOGE = (...a) => console.error("[local-llm-bridge]", ...a);
 
 let _reqCounter = 0;
 const nextId = () => `#${++_reqCounter}`;
 
+// Resolve the configured Ollama base URL from storage, falling back to the
+// default. Trailing slashes are trimmed so callers can append "/api/...".
+async function getBase() {
+  try {
+    const { [BASE_KEY]: v } = await chrome.storage.local.get(BASE_KEY);
+    const url = (v && String(v).trim()) || DEFAULT_BASE;
+    return url.replace(/\/+$/, "");
+  } catch (_) {
+    return DEFAULT_BASE;
+  }
+}
+
+// declarativeNetRequest strips the Origin header so Ollama doesn't reject the
+// request as cross-origin. The static rules.json only covers the localhost
+// default; this dynamic rule re-targets whatever host the user configures.
+const ORIGIN_RULE_ID = 1001;
+async function syncOriginRule() {
+  const base = await getBase();
+  let urlFilter;
+  try {
+    const u = new URL(base);
+    urlFilter = `|${u.protocol}//${u.host}/`;
+  } catch (e) {
+    LOGE("syncOriginRule: invalid base URL", base, e);
+    return;
+  }
+  try {
+    await chrome.declarativeNetRequest.updateDynamicRules({
+      removeRuleIds: [ORIGIN_RULE_ID],
+      addRules: [{
+        id: ORIGIN_RULE_ID,
+        priority: 1,
+        action: {
+          type: "modifyHeaders",
+          requestHeaders: [{ header: "origin", operation: "remove" }]
+        },
+        condition: { urlFilter, resourceTypes: ["xmlhttprequest"] }
+      }]
+    });
+    LOG("origin-strip rule synced for", urlFilter);
+  } catch (e) {
+    LOGE("syncOriginRule failed", e);
+  }
+}
+
+// Keep the dynamic rule in step with the configured base URL.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes[BASE_KEY]) syncOriginRule();
+});
+syncOriginRule();
+
 // Quick reachability probe against the local LLM HTTP API.
 // Aborts after 3s so a stalled connection doesn't keep the UI in limbo.
 async function health() {
+  const base = await getBase();
   const t0 = performance.now();
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 3000);
   try {
-    const res = await fetch(`${LLM_BASE}/api/tags`, { signal: ctrl.signal });
+    const res = await fetch(`${base}/api/tags`, { signal: ctrl.signal });
     return {
       reachable: res.ok,
       httpStatus: res.status,
@@ -30,10 +83,11 @@ async function health() {
 }
 
 async function listModels() {
+  const base = await getBase();
   const id = nextId();
   LOG(id, "→ GET /api/tags");
   const t0 = performance.now();
-  const res = await fetch(`${LLM_BASE}/api/tags`);
+  const res = await fetch(`${base}/api/tags`);
   if (!res.ok) {
     LOGE(id, `← ${res.status}`);
     throw new Error(`LLM /api/tags ${res.status}`);
@@ -45,6 +99,7 @@ async function listModels() {
 }
 
 async function generate({ model, prompt, system }) {
+  const base = await getBase();
   const id = nextId();
   const body = {
     model: model || "qwen3:14b",
@@ -54,7 +109,7 @@ async function generate({ model, prompt, system }) {
   };
   LOG(id, "→ POST /api/generate", body);
   const t0 = performance.now();
-  const res = await fetch(`${LLM_BASE}/api/generate`, {
+  const res = await fetch(`${base}/api/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body)
@@ -75,6 +130,7 @@ async function generate({ model, prompt, system }) {
 }
 
 async function streamGenerate({ model, prompt, system, signal }, onChunk, onStatus) {
+  const base = await getBase();
   const id = nextId();
   const body = {
     model: model || "qwen3:14b",
@@ -85,7 +141,7 @@ async function streamGenerate({ model, prompt, system, signal }, onChunk, onStat
   LOG(id, "→ POST /api/generate (stream)", body);
   const t0 = performance.now();
   onStatus && onStatus({ phase: "sending", message: "sending request to LLM…" });
-  const res = await fetch(`${LLM_BASE}/api/generate`, {
+  const res = await fetch(`${base}/api/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -342,4 +398,4 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true; // keep channel open for async sendResponse
 });
 
-LOG("service worker ready, base =", LLM_BASE);
+getBase().then((base) => LOG("service worker ready, base =", base));

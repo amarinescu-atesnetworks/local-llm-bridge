@@ -5,9 +5,13 @@
   "description": "Bridges a web page to a local LLM HTTP API running on http://localhost:11434.",
   "permissions": ["storage", "declarativeNetRequestWithHostAccess"],
   "host_permissions": [
-    "http://localhost:11434/*",
-    "http://127.0.0.1:11434/*"
+    "http://*/*",
+    "https://*/*"
   ],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
   "declarative_net_request": {
     "rule_resources": [
       {
