@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Local LLM Chat</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --text: #e6e6e6;
+    --muted: #8a90a0;
+    --accent: #6aa6ff;
+    --border: #262a35;
+    --danger: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    display: flex;
+    justify-content: center;
+    padding: 24px;
+  }
+  .app {
+    width: 100%;
+    max-width: 820px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  .status {
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #555; }
+  .dot.ok { background: #4ade80; }
+  .dot.bad { background: var(--danger); }
+  .dot.pending { background: #c5a76a; }
+  .status { gap: 8px; }
+  .status .pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; }
+
+  .controls {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 10px;
+  }
+  select, input, textarea, button {
+    font: inherit;
+    color: var(--text);
+    background: #0d1017;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+    outline: none;
+  }
+  select { min-width: 180px; }
+  label.row { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+
+  .answer {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    min-height: 160px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+    max-width: 100%;
+  }
+  .answer.empty { color: var(--muted); }
+  .answer.error { color: var(--danger); }
+  .answer .prose {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .answer .codeblock {
+    background: #0a0d13;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin: 10px 0;
+    overflow: hidden;
+  }
+  .answer .codeblock-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    background: #11151d;
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .answer .codeblock-header .lang {
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    color: var(--accent);
+  }
+  .answer .codeblock-actions { display: flex; gap: 6px; }
+  .answer .codeblock-actions button {
+    font-size: 11px;
+    padding: 3px 8px;
+    background: #1a1f29;
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  .answer .codeblock-actions button:hover { background: #232936; }
+  .answer .codeblock pre {
+    margin: 0;
+    padding: 12px;
+    overflow-x: auto;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    font-size: 13px;
+    line-height: 1.45;
+    color: #d8dee9;
+    max-height: 480px;
+  }
+  .answer .codeblock pre code { white-space: pre; }
+  .answer .preview-frame {
+    width: 100%;
+    min-height: 240px;
+    border: 0;
+    border-top: 1px solid var(--border);
+    background: #fff;
+    display: block;
+  }
+  .answer .preview-frame.hidden { display: none; }
+
+  form.prompt {
+    display: flex;
+    gap: 8px;
+    align-items: flex-end;
+  }
+  textarea {
+    flex: 1;
+    resize: vertical;
+    min-height: 70px;
+    max-height: 280px;
+  }
+  button.primary {
+    background: var(--accent);
+    color: #0b1220;
+    border-color: var(--accent);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button.primary:disabled { opacity: 0.6; cursor: not-allowed; }
+  .hint { font-size: 12px; color: var(--muted); }
+  kbd {
+    background: #20242e; border: 1px solid var(--border); border-bottom-width: 2px;
+    padding: 1px 5px; border-radius: 4px; font-size: 11px;
+  }
+  .statusbar {
+    display: none;
+    align-items: center;
+    gap: 14px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .statusbar.active { display: flex; }
+  .statusbar .phase { color: var(--text); font-weight: 600; }
+  .statusbar .spinner {
+    width: 10px; height: 10px; border-radius: 50%;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    animation: spin 0.8s linear infinite; display: inline-block;
+  }
+  .statusbar.done .spinner { display: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  details.think {
+    background: #0d1017; border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 10px; margin-bottom: 8px;
+    font-size: 13px; color: var(--muted);
+  }
+  details.think summary { cursor: pointer; color: var(--accent); }
+  details.think .think-body { margin-top: 6px; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Local LLM Chat</h1>
+      <div class="status">
+        <span class="pill" title="Bridge extension presence">
+          <span id="dot" class="dot pending"></span>
+          <span id="statusText">checking extension…</span>
+        </span>
+        <span class="pill" title="Local LLM HTTP API reachability">
+          <span id="llmDot" class="dot pending"></span>
+          <span id="llmStatusText">LLM: pending</span>
+        </span>
+      </div>
+    </header>
+
+    <div class="controls">
+      <label class="row">Model
+        <select id="model"><option value="">(loading…)</option></select>
+      </label>
+      <label class="row">
+        <input type="checkbox" id="stream" checked /> stream
+      </label>
+      <button id="refresh" type="button">Refresh models</button>
+    </div>
+
+    <form class="prompt" id="form">
+      <textarea id="prompt" placeholder="Ask something… (Ctrl+Enter to send)"></textarea>
+      <button class="primary" id="send" type="submit">Send</button>
+    </form>
+
+    <div id="statusbar" class="statusbar">
+      <span class="spinner"></span>
+      <span class="phase" id="phaseLabel">idle</span>
+      <span>elapsed: <span id="elapsed">0.0s</span></span>
+      <span id="firstTokenInfo"></span>
+      <span id="charsInfo"></span>
+      <span id="tokSecInfo"></span>
+    </div>
+    <div id="answer" class="answer empty">Answer will appear here.</div>
+    <div class="hint">
+      Tip: keep this page open and the Local LLM Bridge extension installed.
+      Pressing <kbd>Ctrl</kbd>+<kbd>Enter</kbd> in the textarea sends.
+    </div>
+  </div>
+
+<script>
+(() => {
+  // Minimal client for the Local LLM Bridge extension.
+  // Communicates via window.postMessage; the content script forwards to the
+  // extension service worker, which talks to http://localhost:11434.
+
+  const pending = new Map();
+  let extensionReady = false;
+
+  function uid() {
+    return Math.random().toString(36).slice(2) + Date.now().toString(36);
+  }
+
+  function sendToBridge(action, payload, { onChunk, onStatus } = {}) {
+    return new Promise((resolve, reject) => {
+      const requestId = uid();
+      pending.set(requestId, { resolve, reject, onChunk, onStatus, buffer: "" });
+      window.postMessage({ source: "local-llm-page", action, payload, requestId }, "*");
+    });
+  }
+
+  window.addEventListener("message", (e) => {
+    if (e.source !== window) return;
+    const d = e.data;
+    if (!d || d.source !== "local-llm-bridge") return;
+
+    if (d.ready) {
+      extensionReady = true;
+      setStatus(true, "extension connected");
+      loadModels();
+      checkLLMHealth();
+      startHealthPolling();
+      return;
+    }
+
+    const req = d.requestId ? pending.get(d.requestId) : null;
+    if (!req) return;
+
+    if (d.streaming) {
+      if (d.status) {
+        req.onStatus && req.onStatus(d.status);
+      }
+      if (d.chunk) {
+        req.buffer += d.chunk;
+        req.onChunk && req.onChunk(d.chunk, req.buffer);
+      }
+      if (d.done) {
+        pending.delete(d.requestId);
+        if (d.error) req.reject(new Error(d.error));
+        else req.resolve(req.buffer);
+      }
+      return;
+    }
+
+    // Non-stream / acknowledgement
+    if (d.ok === false) {
+      pending.delete(d.requestId);
+      if (d.contextInvalidated) {
+        extensionReady = false;
+        setStatus(false, "extension reloaded — refresh page");
+        setLLMStatus("pending", "LLM: extension offline");
+      }
+      req.reject(new Error(d.error || "bridge error"));
+      return;
+    }
+    if (!d.streamStarted) {
+      pending.delete(d.requestId);
+      req.resolve(d.response !== undefined ? d.response : d);
+    }
+  });
+
+  // ---- UI ----
+  const dot = document.getElementById("dot");
+  const statusText = document.getElementById("statusText");
+  const llmDot = document.getElementById("llmDot");
+  const llmStatusText = document.getElementById("llmStatusText");
+  const modelSel = document.getElementById("model");
+  const streamCb = document.getElementById("stream");
+  const refreshBtn = document.getElementById("refresh");
+  const form = document.getElementById("form");
+  const promptEl = document.getElementById("prompt");
+  const sendBtn = document.getElementById("send");
+  const answerEl = document.getElementById("answer");
+  const statusbarEl = document.getElementById("statusbar");
+  const phaseLabel = document.getElementById("phaseLabel");
+  const elapsedEl = document.getElementById("elapsed");
+  const firstTokenInfo = document.getElementById("firstTokenInfo");
+  const charsInfo = document.getElementById("charsInfo");
+  const tokSecInfo = document.getElementById("tokSecInfo");
+
+  function setStatus(ok, text) {
+    dot.classList.remove("ok", "bad", "pending");
+    dot.classList.add(ok ? "ok" : "bad");
+    statusText.textContent = text;
+  }
+
+  // LLM reachability — independent of extension presence.
+  // state: "ok" | "bad" | "pending"
+  function setLLMStatus(state, text) {
+    llmDot.classList.remove("ok", "bad", "pending");
+    llmDot.classList.add(state);
+    llmStatusText.textContent = text;
+  }
+
+  let healthPollHandle = null;
+
+  async function checkLLMHealth() {
+    if (!extensionReady) {
+      setLLMStatus("pending", "LLM: extension offline");
+      return;
+    }
+    try {
+      const r = await sendToBridge("health");
+      if (r && r.reachable) {
+        setLLMStatus("ok", `LLM: reachable (${r.latencyMs}ms)`);
+      } else {
+        const reason = r && r.error ? r.error : (r && r.httpStatus ? `HTTP ${r.httpStatus}` : "unreachable");
+        setLLMStatus("bad", `LLM: ${reason}`);
+      }
+    } catch (e) {
+      setLLMStatus("bad", "LLM: " + (e.message || "error"));
+    }
+  }
+
+  function startHealthPolling() {
+    if (healthPollHandle) return;
+    healthPollHandle = setInterval(checkLLMHealth, 10000);
+  }
+
+  // ---- Live status bar (elapsed timer + phase + counters) ----
+  const PHASE_LABELS = {
+    sending: "sending to LLM…",
+    waiting_first_token: "model loading / processing prompt…",
+    streaming: "streaming tokens",
+    done: "done",
+    error: "error"
+  };
+  let runStart = 0;
+  let timerHandle = null;
+
+  function startRun() {
+    runStart = performance.now();
+    statusbarEl.classList.add("active");
+    statusbarEl.classList.remove("done");
+    phaseLabel.textContent = "starting…";
+    elapsedEl.textContent = "0.0s";
+    firstTokenInfo.textContent = "";
+    charsInfo.textContent = "";
+    tokSecInfo.textContent = "";
+    if (timerHandle) clearInterval(timerHandle);
+    timerHandle = setInterval(() => {
+      elapsedEl.textContent = ((performance.now() - runStart) / 1000).toFixed(1) + "s";
+    }, 100);
+  }
+  function endRun() {
+    if (timerHandle) { clearInterval(timerHandle); timerHandle = null; }
+    statusbarEl.classList.add("done");
+  }
+  function applyStatus(s) {
+    if (!s) return;
+    phaseLabel.textContent = PHASE_LABELS[s.phase] || s.phase || s.message || "…";
+    if (s.firstTokenMs != null) {
+      firstTokenInfo.textContent = `first token: ${(s.firstTokenMs/1000).toFixed(1)}s`;
+    }
+    if (s.tokPerSec != null) {
+      tokSecInfo.textContent = `${s.tokPerSec} tok/s`;
+    }
+    if (s.totalMs != null) {
+      elapsedEl.textContent = (s.totalMs / 1000).toFixed(1) + "s";
+    }
+  }
+
+  // ---- Render streamed output: split into <think>, markdown text, and ```code``` fences ----
+  // We rebuild the DOM on every chunk (qwen3 14B ≈ 5 tok/s, so the cost is invisible).
+  // For "html"/"svg" code blocks we offer a live preview in a sandboxed iframe.
+  function splitThinkAndRest(full) {
+    const parts = [];
+    let i = 0;
+    while (i < full.length) {
+      const open = full.indexOf("<think>", i);
+      if (open === -1) { parts.push({ type: "rest", body: full.slice(i) }); break; }
+      if (open > i) parts.push({ type: "rest", body: full.slice(i, open) });
+      const close = full.indexOf("</think>", open + 7);
+      if (close === -1) {
+        parts.push({ type: "think", body: full.slice(open + 7), open: true });
+        return parts;
+      }
+      parts.push({ type: "think", body: full.slice(open + 7, close), open: false });
+      i = close + 8;
+    }
+    return parts;
+  }
+
+  // Parse a chunk of markdown into prose + fenced code segments.
+  // Handles unclosed trailing fences (mid-stream) gracefully.
+  function parseMarkdown(text) {
+    const segments = [];
+    const fence = /```([a-zA-Z0-9_+.-]*)\n([\s\S]*?)(?:```|$)/g;
+    let last = 0;
+    let m;
+    while ((m = fence.exec(text)) !== null) {
+      if (m.index > last) segments.push({ type: "prose", body: text.slice(last, m.index) });
+      const closed = text.slice(m.index + m[0].length - 3, m.index + m[0].length) === "```";
+      segments.push({ type: "code", lang: (m[1] || "").toLowerCase(), body: m[2], closed });
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) segments.push({ type: "prose", body: text.slice(last) });
+    return segments;
+  }
+
+  function makeCodeBlock(seg) {
+    const wrap = document.createElement("div");
+    wrap.className = "codeblock";
+
+    const header = document.createElement("div");
+    header.className = "codeblock-header";
+    const lang = document.createElement("span");
+    lang.className = "lang";
+    lang.textContent = seg.lang || "code";
+    const actions = document.createElement("span");
+    actions.className = "codeblock-actions";
+
+    const copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.textContent = "Copy";
+    copyBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(seg.body);
+        copyBtn.textContent = "Copied!";
+        setTimeout(() => (copyBtn.textContent = "Copy"), 1200);
+      } catch { copyBtn.textContent = "Copy failed"; }
+    });
+    actions.appendChild(copyBtn);
+
+    const isHtml = seg.lang === "html" || seg.lang === "svg" || /^\s*<!doctype|^\s*<html/i.test(seg.body);
+    let frame = null;
+    if (isHtml && seg.closed) {
+      const previewBtn = document.createElement("button");
+      previewBtn.type = "button";
+      previewBtn.textContent = "Preview";
+
+      const fitFrameToViewport = () => {
+        if (!frame || frame.classList.contains("hidden")) return;
+        const rect = frame.getBoundingClientRect();
+        // Fill from the iframe's current top edge down to the bottom of
+        // the viewport, leaving a small bottom margin.
+        const h = Math.max(240, window.innerHeight - rect.top - 12);
+        frame.style.height = h + "px";
+      };
+      let resizeHandler = null;
+
+      previewBtn.addEventListener("click", () => {
+        if (!frame) return;
+        const shown = !frame.classList.contains("hidden");
+        if (shown) {
+          frame.classList.add("hidden");
+          previewBtn.textContent = "Preview";
+          if (resizeHandler) {
+            window.removeEventListener("resize", resizeHandler);
+            resizeHandler = null;
+          }
+        } else {
+          if (!frame.dataset.loaded) {
+            frame.srcdoc = seg.body;
+            frame.dataset.loaded = "1";
+          }
+          frame.classList.remove("hidden");
+          previewBtn.textContent = "Hide preview";
+          fitFrameToViewport();
+          // Scroll the iframe into view, then re-fit after the scroll
+          // settles so the height reflects the final layout position.
+          frame.scrollIntoView({ behavior: "smooth", block: "start" });
+          setTimeout(fitFrameToViewport, 350);
+          resizeHandler = fitFrameToViewport;
+          window.addEventListener("resize", resizeHandler);
+        }
+      });
+      actions.appendChild(previewBtn);
+    }
+
+    header.appendChild(lang);
+    header.appendChild(actions);
+    wrap.appendChild(header);
+
+    const pre = document.createElement("pre");
+    const code = document.createElement("code");
+    code.textContent = seg.body;
+    pre.appendChild(code);
+    wrap.appendChild(pre);
+
+    if (isHtml && seg.closed) {
+      frame = document.createElement("iframe");
+      frame.className = "preview-frame hidden";
+      frame.setAttribute("sandbox", "allow-scripts");
+      frame.setAttribute("title", "HTML preview");
+      wrap.appendChild(frame);
+    }
+
+    return wrap;
+  }
+
+  function renderAnswer(full) {
+    answerEl.innerHTML = "";
+    const parts = splitThinkAndRest(full);
+    for (const p of parts) {
+      if (p.type === "think") {
+        const d = document.createElement("details");
+        d.className = "think";
+        if (p.open) d.open = true;
+        const s = document.createElement("summary");
+        s.textContent = p.open ? "thinking… (live)" : "thinking (click to expand)";
+        const body = document.createElement("div");
+        body.className = "think-body";
+        body.textContent = p.body;
+        d.appendChild(s); d.appendChild(body);
+        answerEl.appendChild(d);
+        continue;
+      }
+      // p.type === "rest": parse markdown fences
+      const segs = parseMarkdown(p.body);
+      for (const seg of segs) {
+        if (seg.type === "code") {
+          answerEl.appendChild(makeCodeBlock(seg));
+        } else if (seg.body) {
+          const span = document.createElement("div");
+          span.className = "prose";
+          span.textContent = seg.body;
+          answerEl.appendChild(span);
+        }
+      }
+    }
+  }
+
+  async function loadModels() {
+    try {
+      const res = await sendToBridge("list");
+      const models = res.models || res || [];
+      modelSel.innerHTML = "";
+      if (!models.length) {
+        modelSel.innerHTML = '<option value="">(no models available — pull one on the local LLM server)</option>';
+        return;
+      }
+      for (const name of models) {
+        const opt = document.createElement("option");
+        opt.value = name;
+        opt.textContent = name;
+        if (name === "qwen3:14b") opt.selected = true;
+        modelSel.appendChild(opt);
+      }
+    } catch (e) {
+      setStatus(false, "cannot reach LLM: " + e.message);
+      modelSel.innerHTML = '<option value="">(unavailable)</option>';
+    }
+  }
+
+  refreshBtn.addEventListener("click", loadModels);
+
+  promptEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const prompt = promptEl.value.trim();
+    if (!prompt) return;
+    const model = modelSel.value;
+    if (!model) {
+      answerEl.className = "answer error";
+      answerEl.textContent = "Pick a model first.";
+      return;
+    }
+    if (!extensionReady) {
+      answerEl.className = "answer error";
+      answerEl.textContent = "Extension not detected. Install the Local LLM Bridge extension and reload this page.";
+      return;
+    }
+
+    sendBtn.disabled = true;
+    answerEl.className = "answer";
+    answerEl.textContent = "";
+    startRun();
+
+    try {
+      if (streamCb.checked) {
+        await sendToBridge("stream", { model, prompt }, {
+          onStatus: applyStatus,
+          onChunk: (_chunk, full) => {
+            renderAnswer(full);
+            charsInfo.textContent = `${full.length} chars`;
+          }
+        });
+      } else {
+        phaseLabel.textContent = "thinking (non-streaming)…";
+        answerEl.textContent = "Thinking…";
+        const text = await sendToBridge("generate", { model, prompt });
+        renderAnswer(text || "(empty response)");
+        applyStatus({ phase: "done" });
+      }
+    } catch (err) {
+      answerEl.className = "answer error";
+      answerEl.textContent = "Error: " + err.message;
+      phaseLabel.textContent = "error";
+    } finally {
+      endRun();
+      sendBtn.disabled = false;
+    }
+  });
+
+  // If the content script already fired its ready ping before this listener
+  // attached, give it a small grace period then probe.
+  setTimeout(() => {
+    if (!extensionReady) {
+      setStatus(false, "extension not detected");
+      setLLMStatus("pending", "LLM: extension offline");
+    }
+  }, 1500);
+})();
+</script>
+</body>
+</html>

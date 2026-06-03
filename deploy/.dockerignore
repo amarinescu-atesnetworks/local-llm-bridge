@@ -1,0 +1,6 @@
+deploy/
+extension/
+.git/
+*.md
+node_modules/
+*.log

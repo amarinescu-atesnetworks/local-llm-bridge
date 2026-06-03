@@ -1,0 +1,13 @@
+services:
+  local-llm-bridge-page:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: local-llm-bridge-page:latest
+    container_name: local-llm-bridge-page
+    restart: unless-stopped
+    ports:
+      # Next free marketplace slot after 3100/3101/3102.
+      # Internal NIC only; public reach (if added later) goes through the
+      # nginx proxy on 10.10.13.76 over the 10.10.0.0/16 mesh.
+      - "10.10.13.75:3103:3000"
