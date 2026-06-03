@@ -28,8 +28,5 @@
       "run_at": "document_start",
       "all_frames": false
     }
-  ],
-  "action": {
-    "default_title": "Local LLM Bridge"
-  }
+  ]
 }

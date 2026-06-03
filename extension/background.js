@@ -166,7 +166,7 @@ const TOKEN_GENERATE_MODEL = "qwen3:14b";
 // model load (qwen3:14b ≈ 9 GB) can take ~30 s before Ollama emits its first
 // token. After the first token the model is resident and tokens should arrive
 // steadily; a long gap then means Ollama got stuck.
-const FIRST_TOKEN_TIMEOUT_MS = 90_000;   // cold-start budget (load + first token)
+const FIRST_TOKEN_TIMEOUT_MS = 300_000;  // cold-start budget (load + first token)
 const STREAM_IDLE_TIMEOUT_MS = 30_000;   // max gap between tokens once streaming
 
 // Server-pushed token_generate handler:
